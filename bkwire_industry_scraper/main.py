@@ -1,16 +1,19 @@
-from flask import Flask, render_template, request, jsonify
 import urllib
+import re
+import time
+import getpass
+import os
+from dotenv import load_dotenv
+from flask import Flask, render_template, request, jsonify
 from requests_html import HTMLSession
 from selenium import webdriver
-from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-import re
-import time
 from selenium.webdriver.chrome.options import Options
-import getpass
-import json
+from webdriver_manager.chrome import ChromeDriverManager
+
+load_dotenv()
 
 PREFIX = r"https?://(?:www\.)?"
 SITES = ["(?:[a-z]{2}\.)?linkedin.com/(?:company/|in/|pub/)"]
@@ -20,6 +23,9 @@ PATTERN = r"%s(?:%s)(?:%s)?%s" % (PREFIX, "|".join(SITES), "|".join(BETWEEN), AC
 SOCIAL_REX = re.compile(PATTERN, flags=re.I)
 VERIFY_LOGIN_ID = "global-nav-search"
 REMEMBER_PROMPT = "remember-me-prompt__form-primary"
+# Configuration
+LINKEDIN_USER_ID = os.environ.get("LINKEDIN_USER_EMAIL_ID", None)
+LINKEDIN_USER_PWD = os.environ.get("LINKEDIN_USER_PASSWORD", None)
 
 options = Options()
 options.headless = True
@@ -40,8 +46,8 @@ def login(driver, email, password, timeout=10):
         EC.presence_of_element_located((By.ID, "username"))
     )
 
-    email_elem = driver.find_element(By.ID, "username")
-    email_elem.send_keys(email)
+    # email_elem = driver.find_element(By.ID, "username")
+    element.send_keys(email)
 
     password_elem = driver.find_element(By.ID, "password")
     password_elem.send_keys(password)
@@ -61,7 +67,7 @@ def login(driver, email, password, timeout=10):
 
 
 def login_to_linkedin(email, password):
-    driver = webdriver.Chrome(ChromeDriverManager().install(), options=options)
+    driver = webdriver.Chrome(ChromeDriverManager().install())
     try:
         status = login(driver, email, password)
     except Exception as e:
@@ -70,7 +76,7 @@ def login_to_linkedin(email, password):
 
 
 def get_industry_type(search_query):
-    company_profile = {"company_url": None, "company_industry_type": None}
+    data = {"Industry": None}
     query = urllib.parse.quote_plus(search_query)
     session = HTMLSession()
     response = session.get("https://www.google.co.uk/search?q=" + query)
@@ -81,7 +87,7 @@ def get_industry_type(search_query):
             first_link = link
             if "company" in first_link:
                 while True:
-                    driver = login_to_linkedin("taral.tagline@gmail.com", "Tagline@123")
+                    driver = login_to_linkedin(LINKEDIN_USER_ID, LINKEDIN_USER_PWD)
                     if driver != False:
                         break
                 if (
@@ -91,29 +97,33 @@ def get_industry_type(search_query):
                     or first_link.endswith("videos")
                 ):
                     first_link = "/".join(first_link.split("/")[:-1])
-                company_profile["company_url"] = first_link
-                driver.get(first_link)
-                time.sleep(1)
-                driver.find_element(
-                    By.XPATH,
-                    "/html/body/div[6]/div[3]/div/div[2]/div/div[2]/main/div[1]/section/div/div[2]/div[2]/nav/ul/li[2]/a",
-                ).click()
+                for _ in range(5):
+                    try:
+                        driver.get(first_link)
+                        time.sleep(2)
+                        driver.find_element(
+                            By.XPATH,
+                            "/html/body/div[6]/div[3]/div/div[2]/div/div[2]/main/div[1]/section/div/div[2]/div[2]/nav/ul/li[2]/a",
+                        ).click()
+                        break
+                    except:
+                        continue
                 details_xpath = "/html/body/div[6]/div[3]/div/div[2]/div/div[2]/main/div[2]/div/div[2]/div[1]/section/dl/"
-                time.sleep(1)
+                time.sleep(2)
                 if (
                     driver.find_element(By.XPATH, details_xpath + "dt[2]").text
                     == "Industry"
                 ):
                     result = driver.find_element(By.XPATH, details_xpath + "dd[2]").text
-                    company_profile["company_industry_type"] = result
+                    data["Industry"] = result
                 elif (
                     driver.find_element(By.XPATH, details_xpath + "dt[3]").text
                     == "Industry"
                 ):
                     result = driver.find_element(By.XPATH, details_xpath + "dd[3]").text
-                    company_profile["company_industry_type"] = result
+                    data["Industry"] = result
                 break
-    return company_profile
+    return data
 
 
 app = Flask(__name__)
@@ -139,7 +149,6 @@ def index():
             + street
         )
         company_profile = get_industry_type(search_query)
-        json_object = json.dumps(company_profile, indent=4)
 
-        return jsonify(json_object)
+        return jsonify(company_profile)
     return render_template("index.html")
