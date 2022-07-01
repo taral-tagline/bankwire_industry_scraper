@@ -3,8 +3,9 @@ import re
 import time
 import getpass
 import os
+import random
 from dotenv import load_dotenv
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, request, jsonify
 from requests_html import HTMLSession
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -29,7 +30,35 @@ LINKEDIN_USER_ID = os.environ.get("LINKEDIN_USER_EMAIL_ID", None)
 LINKEDIN_USER_PWD = os.environ.get("LINKEDIN_USER_PASSWORD", None)
 
 options = Options()
-options.headless = True
+# options.headless = True
+
+# Get free proxies for rotating
+def get_free_proxies():
+    driver = webdriver.Chrome(ChromeDriverManager().install())
+
+    driver.get("https://sslproxies.org")
+    time.sleep(1)
+    table = driver.find_element(By.TAG_NAME, "table")
+    thead = table.find_element(By.TAG_NAME, "thead").find_elements(By.TAG_NAME, "th")
+    tbody = table.find_element(By.TAG_NAME, "tbody").find_elements(By.TAG_NAME, "tr")
+
+    headers = []
+    for th in thead:
+        headers.append(th.text.strip())
+
+    proxies = []
+    for tr in tbody:
+        proxy_data = {}
+        tds = tr.find_elements(By.TAG_NAME, "td")
+        for i in range(len(headers)):
+            proxy_data[headers[i]] = tds[i].text.strip()
+        proxies.append(proxy_data)
+
+    list_of_proxies = []
+    for record in proxies:
+        list_of_proxies.append(f"{record['IP Address']}:{record['Port']}")
+
+    return list_of_proxies
 
 
 def __prompt_email_password():
@@ -43,15 +72,18 @@ def login(driver, email, password, timeout=10):
         email, password = __prompt_email_password()
 
     driver.get("https://www.linkedin.com/login")
+
+    time.sleep(2)
     element = WebDriverWait(driver, 10).until(
         EC.presence_of_element_located((By.ID, "username"))
-    )
-
-    # email_elem = driver.find_element(By.ID, "username")
+    )  # email_elem = driver.find_element(By.ID, "username")
     element.send_keys(email)
 
+    time.sleep(2)
     password_elem = driver.find_element(By.ID, "password")
     password_elem.send_keys(password)
+
+    time.sleep(2)
     password_elem.submit()
 
     try:
@@ -68,6 +100,9 @@ def login(driver, email, password, timeout=10):
 
 
 def login_to_linkedin(email, password):
+    free_proxies = get_free_proxies()
+    PROXY_STR = random.choice(free_proxies)
+    options.add_argument("--proxy-server=%s" % PROXY_STR)
     driver = webdriver.Chrome(ChromeDriverManager().install())
     try:
         status = login(driver, email, password)
@@ -113,6 +148,7 @@ def get_industry_type(search_query):
     for link in links:
         if re.search(PATTERN, link):
             linkedin_links_list.append(link)
+
     first_link = [link for link in linkedin_links_list if "/company/" in link]
     if len(first_link) > 0:
         first_link = first_link[0]
