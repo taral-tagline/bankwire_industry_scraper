@@ -1,4 +1,4 @@
 /env
 env/
 bkwire_industry_scraper/.DS_Store
-bkwire_industry_scraper/static/.DS_Store
+.env

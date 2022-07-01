@@ -11,6 +11,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
+from selenium.common.exceptions import NoSuchElementException
 from webdriver_manager.chrome import ChromeDriverManager
 
 load_dotenv()
@@ -75,54 +76,100 @@ def login_to_linkedin(email, password):
     return driver
 
 
+def find_industry_from_about_page(driver, details_xpath):
+    result = None
+    try:
+        time.sleep(2)
+        if driver.find_element(By.XPATH, details_xpath + "dt[2]").text == "Industry":
+            result = driver.find_element(By.XPATH, details_xpath + "dd[2]").text
+    except NoSuchElementException:
+        print("Element doesn't found! Moving to the next element...")
+
+    try:
+        time.sleep(2)
+        if driver.find_element(By.XPATH, details_xpath + "dt[3]").text == "Industry":
+            result = driver.find_element(By.XPATH, details_xpath + "dd[3]").text
+    except NoSuchElementException:
+        print("Element doesn't found! Moving to the next element...")
+
+    try:
+        time.sleep(2)
+        if driver.find_element(By.XPATH, details_xpath + "dt[1]").text == "Industry":
+            result = driver.find_element(By.XPATH, details_xpath + "dd[1]").text
+    except NoSuchElementException:
+        print("Industry element doesn't found on about page of the company")
+
+    return result
+
+
 def get_industry_type(search_query):
-    data = {"Industry": None}
+    data = {}
     query = urllib.parse.quote_plus(search_query)
     session = HTMLSession()
-    response = session.get("https://www.google.co.uk/search?q=" + query)
+    response = session.get("https://www.google.com/search?q=" + query)
 
     links = list(response.html.absolute_links)
+    linkedin_links_list = []
     for link in links:
         if re.search(PATTERN, link):
-            first_link = link
-            if "company" in first_link:
-                while True:
-                    driver = login_to_linkedin(LINKEDIN_USER_ID, LINKEDIN_USER_PWD)
-                    if driver != False:
-                        break
-                if (
-                    first_link.endswith("life")
-                    or first_link.endswith("jobs")
-                    or first_link.endswith("people")
-                    or first_link.endswith("videos")
-                ):
-                    first_link = "/".join(first_link.split("/")[:-1])
-                for _ in range(5):
-                    try:
-                        driver.get(first_link)
-                        time.sleep(2)
-                        driver.find_element(
-                            By.XPATH,
-                            "/html/body/div[6]/div[3]/div/div[2]/div/div[2]/main/div[1]/section/div/div[2]/div[2]/nav/ul/li[2]/a",
-                        ).click()
-                        break
-                    except:
-                        continue
-                details_xpath = "/html/body/div[6]/div[3]/div/div[2]/div/div[2]/main/div[2]/div/div[2]/div[1]/section/dl/"
-                time.sleep(2)
-                if (
-                    driver.find_element(By.XPATH, details_xpath + "dt[2]").text
-                    == "Industry"
-                ):
-                    result = driver.find_element(By.XPATH, details_xpath + "dd[2]").text
-                    data["Industry"] = result
-                elif (
-                    driver.find_element(By.XPATH, details_xpath + "dt[3]").text
-                    == "Industry"
-                ):
-                    result = driver.find_element(By.XPATH, details_xpath + "dd[3]").text
-                    data["Industry"] = result
+            linkedin_links_list.append(link)
+    first_link = [link for link in linkedin_links_list if "/company/" in link]
+    if len(first_link) > 0:
+        first_link = first_link[0]
+        if "translate.google.com" in first_link:
+            first_link = first_link[
+                first_link.find("https", 6) : first_link.find("&prev")
+            ]
+        while True:
+            driver = login_to_linkedin(LINKEDIN_USER_ID, LINKEDIN_USER_PWD)
+            if driver != False:
                 break
+        time.sleep(2)
+        if (
+            first_link.endswith("life")
+            or first_link.endswith("jobs")
+            or first_link.endswith("people")
+            or first_link.endswith("videos")
+        ):
+            first_link = "/".join(first_link.split("/")[:-1])
+        is_clicked_about_page = False
+        for _ in range(5):
+            try:
+                driver.get(first_link)
+                time.sleep(2)
+                driver.find_element(
+                    By.XPATH,
+                    "/html/body/div[6]/div[3]/div/div[2]/div/div[2]/main/div[1]/section/div/div[2]/div[2]/nav/ul/li[2]/a",
+                ).click()
+                is_clicked_about_page = True
+            except:
+                continue
+            if is_clicked_about_page:
+                break
+
+        try:
+            details_xpath = "/html/body/div[6]/div[3]/div/div[2]/div/div[2]/main/div[2]/div/div[2]/div[1]/section/dl/"
+            data["Industry"] = find_industry_from_about_page(driver, details_xpath)
+            if data["Industry"] == None:
+                raise NoSuchElementException
+        except NoSuchElementException:
+            details_xpath = "/html/body/div[5]/div[3]/div/div[2]/div/div[2]/main/div[2]/div/div[2]/div[1]/section/dl/"
+            data["Industry"] = find_industry_from_about_page(driver, details_xpath)
+        except:
+            try:
+                time.sleep(2)
+                driver.find_element(
+                    By.XPATH,
+                    "/html/body/main/section[1]/div/section[1]/div/dl/div[2]/dt",
+                ).text == "Industries"
+                result = driver.find_element(
+                    By.XPATH,
+                    "/html/body/main/section[1]/div/section[1]/div/dl/div[2]/dd",
+                ).text
+            except NoSuchElementException:
+                print("Industry element doesn't found on about page of the company")
+    else:
+        return data
     return data
 
 
@@ -130,25 +177,20 @@ app = Flask(__name__)
 app.config["SECRET_KEY"] = "dev"
 
 
-@app.route("/", methods=["POST", "GET"])
+@app.route("/industry")
 def index():
-    if request.method == "POST":
-        company_name = request.form["comapny_name"]
-        city = request.form["city"]
-        state = request.form["state"]
-        street = request.form["street"]
+    company_name = request.form["comapny_name"]
+    street = request.form.get("street", "")
+    city = request.form.get("city", "")
+    state = request.form.get("state", "")
+    country = request.form.get("country", "")
+    search_query = "site:linkedin.com " + company_name
+    li = [street, city, state, country]
+    for data in li:
+        if data == "":
+            continue
+        search_query += " " + data
 
-        search_query = (
-            "linkedin.com company "
-            + company_name
-            + ", "
-            + city
-            + ", "
-            + state
-            + ", "
-            + street
-        )
-        company_profile = get_industry_type(search_query)
+    company_profile = get_industry_type(search_query)
 
-        return jsonify(company_profile)
-    return render_template("index.html")
+    return jsonify(company_profile)
