@@ -177,8 +177,13 @@ app = Flask(__name__)
 app.config["SECRET_KEY"] = "dev"
 
 
-@app.route("/industry")
+@app.route("/")
 def index():
+    return
+
+
+@app.route("/industry/")
+def industry():
     company_name = request.form["comapny_name"]
     street = request.form.get("street", "")
     city = request.form.get("city", "")
