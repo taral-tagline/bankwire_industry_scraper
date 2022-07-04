@@ -29,15 +29,10 @@ REMEMBER_PROMPT = "remember-me-prompt__form-primary"
 LINKEDIN_USER_ID = os.environ.get("LINKEDIN_USER_EMAIL_ID", None)
 LINKEDIN_USER_PWD = os.environ.get("LINKEDIN_USER_PASSWORD", None)
 
-options = Options()
-# options.headless = True
-
 # Get free proxies for rotating
-def get_free_proxies():
-    driver = webdriver.Chrome(ChromeDriverManager().install())
-
+def get_free_proxies(driver):
     driver.get("https://sslproxies.org")
-    time.sleep(1)
+
     table = driver.find_element(By.TAG_NAME, "table")
     thead = table.find_element(By.TAG_NAME, "thead").find_elements(By.TAG_NAME, "th")
     tbody = table.find_element(By.TAG_NAME, "tbody").find_elements(By.TAG_NAME, "tr")
@@ -100,10 +95,12 @@ def login(driver, email, password, timeout=10):
 
 
 def login_to_linkedin(email, password):
-    free_proxies = get_free_proxies()
+    driver = webdriver.Chrome(ChromeDriverManager().install())
+    options = Options()
+    # options.headless = True
+    free_proxies = get_free_proxies(driver)
     PROXY_STR = random.choice(free_proxies)
     options.add_argument("--proxy-server=%s" % PROXY_STR)
-    driver = webdriver.Chrome(ChromeDriverManager().install())
     try:
         status = login(driver, email, password)
     except Exception as e:
@@ -148,7 +145,6 @@ def get_industry_type(search_query):
     for link in links:
         if re.search(PATTERN, link):
             linkedin_links_list.append(link)
-
     first_link = [link for link in linkedin_links_list if "/company/" in link]
     if len(first_link) > 0:
         first_link = first_link[0]
@@ -231,7 +227,7 @@ def industry():
         if data == "":
             continue
         search_query += " " + data
-
+    print(search_query)
     company_profile = get_industry_type(search_query)
 
     return jsonify(company_profile)
