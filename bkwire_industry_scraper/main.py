@@ -15,8 +15,11 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 from webdriver_manager.chrome import ChromeDriverManager
 from bs4 import BeautifulSoup
+from selenium.common.exceptions import NoSuchElementException
 
 load_dotenv()
+options = Options()
+options.headless = True
 
 PREFIX = r"https?://(?:www\.)?"
 SITES = ["(?:[a-z]{2}\.)?linkedin.com/(?:company/)"]
@@ -89,15 +92,12 @@ def login(driver, email, password, timeout=10):
         pass
 
 
-def login_to_linkedin(email, password):
-    options = Options()
-    options.headless = True
-    driver = webdriver.Chrome(ChromeDriverManager().install(), options=options)
+def login_to_linkedin(email, password, driver):
     try:
-        status = login(driver, email, password)
+        login(driver, email, password)
     except Exception as e:
         return False
-    return driver
+    return True
 
 
 def get_industry_type_from_linkedin_search(search_query):
@@ -121,7 +121,7 @@ def get_industry_type_from_linkedin_search(search_query):
     return industry
 
 
-def get_industry_type_from_linkedin(search_query):
+def get_industry_type_from_linkedin(search_query, driver):
     industry = None
 
     search_query = f"site:linkedin.com {search_query}"
@@ -144,8 +144,8 @@ def get_industry_type_from_linkedin(search_query):
                 first_link.find("https", 6) : first_link.find("&prev")
             ]
         while True:
-            driver = login_to_linkedin(LINKEDIN_USER_ID, LINKEDIN_USER_PWD)
-            if driver != False:
+            logged_in = login_to_linkedin(LINKEDIN_USER_ID, LINKEDIN_USER_PWD, driver)
+            if logged_in != False:
                 break
         time.sleep(2)
         if (
@@ -182,8 +182,26 @@ def get_industry_type_from_linkedin(search_query):
     return industry
 
 
-def get_industry_type_from_google(search_query):
-    pass
+def get_industry_type_from_google_maps(search_query, driver):
+    query = urllib.parse.quote_plus(search_query)
+    url = "https://www.google.com/maps/search/" + query
+    driver.get(url)
+    try:
+        industry = driver.find_element(
+            By.CSS_SELECTOR, "button[jsaction='pane.rating.category']"
+        ).text
+
+    except NoSuchElementException:
+        industry = driver.find_element(
+            By.CSS_SELECTOR,
+            "#QA0Szd > div > div > div.w6VYqd > div.bJzME.tTVLSc > div > div.e07Vkf.kA9KIf > div > div > div.m6QErb.DxyBCb.kA9KIf.dS8AEf.ecceSd > div.m6QErb.DxyBCb.kA9KIf.dS8AEf.ecceSd > div:nth-child(3) > div > div.bfdHYd.Ppzolf.OFBs3e > div.lI9IFe > div.y7PRA > div > div > div > div:nth-child(4) > div:nth-child(2) > span > jsl > span:nth-child(2)",
+        ).text
+
+    except:
+        print("Industry type doesn't found on google business!")
+        return None
+
+    return industry
 
 
 app = Flask(__name__)
@@ -197,6 +215,7 @@ def index():
 
 @app.route("/industry/")
 def industry():
+    driver = webdriver.Chrome(ChromeDriverManager().install(), options=options)
     company_name = request.form["comapny_name"]
     street = request.form.get("street", "")
     city = request.form.get("city", "")
@@ -209,6 +228,8 @@ def industry():
             continue
         search_query += " " + data
     industry = get_industry_type_from_linkedin_search(search_query)
-    if not industry:
-        industry = get_industry_type_from_google(search_query)
+    if industry is None:
+        industry = get_industry_type_from_linkedin(search_query, driver)
+        if industry is None:
+            industry = get_industry_type_from_google_maps(search_query, driver)
     return jsonify({"industry": industry})
