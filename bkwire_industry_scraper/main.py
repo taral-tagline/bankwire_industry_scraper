@@ -1,5 +1,6 @@
 import getpass
 import os
+from posixpath import split
 import re
 import time
 import urllib
@@ -114,8 +115,16 @@ def get_industry_type_from_linkedin_search(search_query):
         if "Industries:" in row.text:
             try:
                 result = re.search("Industries: (.*) Company size:", row.text)
-                industry = result.group(1).split(".")[0]
-                break
+                if (
+                    ";" in result.group(1)
+                    and "."
+                    not in result.group(1)[: result.group(1).find("Company size:")]
+                ):
+                    industry = result.group(1).split(";")[0].strip()
+                    break
+                else:
+                    industry = result.group(1).split(".")[0]
+                    break
             except:
                 continue
     return industry
@@ -233,3 +242,36 @@ def industry():
         if industry is None:
             industry = get_industry_type_from_google_maps(search_query, driver)
     return jsonify({"industry": industry})
+
+
+
+# 
+# 
+# 
+# 
+# 
+# 
+# 
+# 
+# 
+# 
+# 
+# 
+# 
+# 
+# 
+# 
+# American Express
+# Blue Cross Blue Shield
+# Blusky
+# Brevard Food Systems
+# C & M FLP
+# CFR Foods, Inc.
+# Duke Energy
+# Ecolab Institutional Dish
+# FRAGMAC LLC
+# Henard, Phillip
+# L & M Ventures
+# Merchants Food Service
+# QE Downtown Investments, LLC
+# Spectrum Hospitality, LLC
