@@ -1,6 +1,5 @@
 import getpass
 import os
-from posixpath import split
 import re
 import time
 import urllib
@@ -242,36 +241,3 @@ def industry():
         if industry is None:
             industry = get_industry_type_from_google_maps(search_query, driver)
     return jsonify({"industry": industry})
-
-
-
-# 
-# 
-# 
-# 
-# 
-# 
-# 
-# 
-# 
-# 
-# 
-# 
-# 
-# 
-# 
-# 
-# American Express
-# Blue Cross Blue Shield
-# Blusky
-# Brevard Food Systems
-# C & M FLP
-# CFR Foods, Inc.
-# Duke Energy
-# Ecolab Institutional Dish
-# FRAGMAC LLC
-# Henard, Phillip
-# L & M Ventures
-# Merchants Food Service
-# QE Downtown Investments, LLC
-# Spectrum Hospitality, LLC
