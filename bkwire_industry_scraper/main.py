@@ -1,115 +1,56 @@
-import getpass
-import os
 import re
-import time
 import urllib
 import requests
-from selenium.webdriver.support.ui import WebDriverWait
-from dotenv import load_dotenv
+from bs4 import BeautifulSoup
 from flask import Flask, jsonify, request
-from requests_html import HTMLSession
+from fresh_useragent import UserAgent
 from selenium import webdriver
+from selenium.common.exceptions import NoSuchElementException
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.support.ui import WebDriverWait
 from webdriver_manager.chrome import ChromeDriverManager
-from bs4 import BeautifulSoup
-from selenium.common.exceptions import NoSuchElementException
+from random import choice
+from getproxies import get_proxies
 
-load_dotenv()
-options = Options()
-options.headless = True
-
-PREFIX = r"https?://(?:www\.)?"
-SITES = ["(?:[a-z]{2}\.)?linkedin.com/(?:company/)"]
-BETWEEN = ["user/", "add/", "pages/", "#!/", "photos/", "u/0/"]
-ACCOUNT = r"[\w\+_@\.\-/%]+"
-PATTERN = r"%s(?:%s)(?:%s)?%s" % (PREFIX, "|".join(SITES), "|".join(BETWEEN), ACCOUNT)
-SOCIAL_REX = re.compile(PATTERN, flags=re.I)
-VERIFY_LOGIN_ID = "global-nav-search"
-REMEMBER_PROMPT = "remember-me-prompt__form-primary"
-
-# Configuration
-LINKEDIN_USER_ID = os.environ.get("LINKEDIN_USER_EMAIL_ID", None)
-LINKEDIN_USER_PWD = os.environ.get("LINKEDIN_USER_PASSWORD", None)
-
-# Get free proxies for rotating
-def get_free_proxies(driver):
-    driver.get("https://sslproxies.org")
-
-    table = driver.find_element(By.TAG_NAME, "table")
-    thead = table.find_element(By.TAG_NAME, "thead").find_elements(By.TAG_NAME, "th")
-    tbody = table.find_element(By.TAG_NAME, "tbody").find_elements(By.TAG_NAME, "tr")
-
-    headers = []
-    for th in thead:
-        headers.append(th.text.strip())
-
-    proxies = []
-    for tr in tbody:
-        proxy_data = {}
-        tds = tr.find_elements(By.TAG_NAME, "td")
-        for i in range(len(headers)):
-            proxy_data[headers[i]] = tds[i].text.strip()
-        proxies.append(proxy_data)
-
-    list_of_proxies = []
-    for record in proxies:
-        list_of_proxies.append(f"{record['IP Address']}:{record['Port']}")
-
-    return list_of_proxies
-
-
-def __prompt_email_password():
-    u = input("Email: ")
-    p = getpass.getpass(prompt="Password: ")
-    return (u, p)
-
-
-def login(driver, email, password, timeout=10):
-    if not email or not password:
-        email, password = __prompt_email_password()
-    driver.get("https://www.linkedin.com/login")
-    element = WebDriverWait(driver, timeout).until(
-        EC.presence_of_element_located((By.ID, "username"))
-    )  # email_elem = driver.find_element(By.ID, "username")
-    element.send_keys(email)
-    password_elem = driver.find_element(By.ID, "password")
-    password_elem.send_keys(password)
-    password_elem.submit()
-
-    try:
-        if driver.url == "https://www.linkedin.com/checkpoint/lg/login-submit":
-            remember = driver.find_element(By.ID, REMEMBER_PROMPT)
-            if remember:
-                remember.submit()
-
-        element = WebDriverWait(driver, timeout).until(
-            EC.presence_of_element_located((By.ID, VERIFY_LOGIN_ID))
-        )
-    except:
-        pass
-
-
-def login_to_linkedin(email, password, driver):
-    try:
-        login(driver, email, password)
-    except Exception as e:
-        return False
-    return True
+proxies = get_proxies()
 
 
 def get_industry_type_from_linkedin_search(search_query):
     industry = None
 
+    # Prepare a search query for linkedin
     search_query = f"site:linkedin.com {search_query} industry type"
 
     query = urllib.parse.quote_plus(search_query)
     # session = HTMLSession()
-    response = requests.get("https://www.google.com/search?q=" + query)
+
+    # Add user agent
+    userAgent = UserAgent()
+    print("+" * 100)
+    print("User Agent:- ", userAgent)
+    headers = {"user-agent": userAgent}
+
+    # Add proxies
+    while True:
+        try:
+            proxy = choice(proxies)
+            print("Proxy currently being used: {}".format(proxy))
+            response = requests.get(
+                "https://www.google.com/search?q=" + query,
+                proxies={str(proxy).split(":")[0]: proxy},
+                headers=headers,
+                timeout=7,
+            )
+            break
+            # if the request is successful, no exception is raised
+        except Exception as e:
+            print(e)
+            print("Connection error, looking for another proxy")
+            pass
     soup = BeautifulSoup(response.content, "html.parser")
+
     table = soup.findAll("div")
+
     for row in table:
         if "Industries:" in row.text:
             try:
@@ -129,115 +70,103 @@ def get_industry_type_from_linkedin_search(search_query):
     return industry
 
 
-def get_industry_type_from_linkedin(search_query, driver):
+def get_industry_type_from_google(search_query):
+    # Selenium Driver Headless Chrome
+    options = Options()
+    options.headless = True
+    driver = webdriver.Chrome(ChromeDriverManager().install(), options=options)
+
     industry = None
 
-    search_query = f"site:linkedin.com {search_query}"
-
+    # Selenium get the google URL
     query = urllib.parse.quote_plus(search_query)
-    session = HTMLSession()
-    response = session.get("https://www.google.com/search?q=" + query)
-
-    links = list(response.html.absolute_links)
-    linkedin_links_list = []
-    for link in links:
-        if re.search(PATTERN, link):
-            linkedin_links_list.append(link)
-
-    first_link = [link for link in linkedin_links_list if "/company/" in link]
-    if len(first_link) > 0:
-        first_link = first_link[0]
-        if "translate.google.com" in first_link:
-            first_link = first_link[
-                first_link.find("https", 6) : first_link.find("&prev")
-            ]
-        while True:
-            logged_in = login_to_linkedin(LINKEDIN_USER_ID, LINKEDIN_USER_PWD, driver)
-            if logged_in != False:
-                break
-        time.sleep(2)
-        if (
-            first_link.endswith("life")
-            or first_link.endswith("jobs")
-            or first_link.endswith("people")
-            or first_link.endswith("videos")
-        ):
-            first_link = "/".join(first_link.split("/")[:-1])
-
-        try:
-            driver.get(first_link)
-        except:
-            pass
-
-        WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located(
-                (
-                    By.CSS_SELECTOR,
-                    "h1"
-                    # "/html/body/div[6]/div[3]/div/div[2]/div/div[2]/main/div[1]/section/div/div[2]/div[1]/div[1]/div[2]/div/h1/span",
-                )
-            )
-        )
-        try:
-            industry = driver.find_element(
-                By.CSS_SELECTOR,
-                ".org-top-card-summary-info-list__info-item",
-            ).text
-        except Exception as e:
-            print(e)
-            print("Industry element doesn't found on about page of the company")
-
-    return industry
-
-
-def get_industry_type_from_google_maps(search_query, driver):
-    query = urllib.parse.quote_plus(search_query)
-    url = "https://www.google.com/maps/search/" + query
+    url = "http://www.google.com/maps/search/" + query
     driver.get(url)
+
+    # Find for the company/industry type element and get the value.
     try:
         industry = driver.find_element(
             By.CSS_SELECTOR, "button[jsaction='pane.rating.category']"
         ).text
 
     except NoSuchElementException:
-        industry = driver.find_element(
-            By.CSS_SELECTOR,
-            "#QA0Szd > div > div > div.w6VYqd > div.bJzME.tTVLSc > div > div.e07Vkf.kA9KIf > div > div > div.m6QErb.DxyBCb.kA9KIf.dS8AEf.ecceSd > div.m6QErb.DxyBCb.kA9KIf.dS8AEf.ecceSd > div:nth-child(3) > div > div.bfdHYd.Ppzolf.OFBs3e > div.lI9IFe > div.y7PRA > div > div > div > div:nth-child(4) > div:nth-child(2) > span > jsl > span:nth-child(2)",
-        ).text
-
-    except:
-        print("Industry type doesn't found on google business!")
-        return None
+        try:
+            industry = driver.find_element(
+                By.CSS_SELECTOR,
+                "#QA0Szd > div > div > div.w6VYqd > div.bJzME.tTVLSc > div > div.e07Vkf.kA9KIf > div > div > div.m6QErb.DxyBCb.kA9KIf.dS8AEf.ecceSd > div.m6QErb.DxyBCb.kA9KIf.dS8AEf.ecceSd > div:nth-child(3) > div > div.bfdHYd.Ppzolf.OFBs3e > div.lI9IFe > div.y7PRA > div > div > div > div:nth-child(4) > div:nth-child(2) > span > jsl > span:nth-child(2)",
+            ).text
+        except:
+            print("Industry type doesn't found on google business!")
 
     return industry
 
 
+def get_industry_news_links_from_google_search(industry_type):
+    search_query = f"latest {industry_type} industry news"
+    news_links = []
+    # Add user agent
+    userAgent = UserAgent()
+    headers = {"user-agent": userAgent}
+    params = {
+        "q": search_query,
+        "tbm": "nws",
+        "hl": "en",
+    }
+
+    response = requests.get(
+        "https://www.google.com/search", headers=headers, params=params
+    )
+    print("+" * 100)
+    print(response.url)
+    print("+" * 100)
+
+    soup = BeautifulSoup(response.content, "html.parser")
+    count = 0
+    for a in soup.find_all("a", class_="WlydOe", href=True):
+        date_published = a.find("div", class_="OSrXXb ZE0LJd").contents[0].text
+        hours_check = re.findall("hours ago", date_published)
+        days_check = re.search("[1-2] (day|days) ago", date_published)
+        if hours_check or days_check:
+            print("+" * 100)
+            print(date_published)
+            news_links.append(a["href"])
+            count = count + 1
+        if count == 5:
+            break
+    return news_links
+
+
 app = Flask(__name__)
-app.config["SECRET_KEY"] = "dev"
 
 
 @app.route("/")
 def index():
-    return
+    return "Industry Scraper API"
 
 
 @app.route("/industry/")
 def industry():
-    driver = webdriver.Chrome(ChromeDriverManager().install(), options=options)
-    company_name = request.form["comapny_name"]
+    company_name = request.form["company_name"]
     street = request.form.get("street", "")
     city = request.form.get("city", "")
     state = request.form.get("state", "")
     country = request.form.get("country", "")
-    search_query = company_name
-    li = [street, city, state, country]
-    for data in li:
-        if data == "":
-            continue
-        search_query += " " + data
+
+    # Prepare a Search Query for Linkedin and Google.
+    search_query = company_name + " ".join([street, city, state, country])
+
+    # First check in the linkedin for Industry
     industry = get_industry_type_from_linkedin_search(search_query)
+
+    # If industry not found in linkedin and then search in the Google
     if industry is None:
-        industry = get_industry_type_from_linkedin(search_query, driver)
-        if industry is None:
-            industry = get_industry_type_from_google_maps(search_query, driver)
+        industry = get_industry_type_from_google(search_query)
+
     return jsonify({"industry": industry})
+
+
+@app.route("/news/")
+def news():
+    industry_type = request.form["industry_name"]
+    news_links = get_industry_news_links_from_google_search(industry_type)
+    return jsonify({"News_Links": news_links})
