@@ -101,39 +101,36 @@ def get_industry_type_from_google(search_query):
     return industry
 
 
-def get_industry_news_links_from_google_search(industry_type):
-    search_query = f"latest {industry_type} industry news"
-    news_links = []
+def get_chemical_industry_news():
+    chemical_industry_news_dict = {"World Of Chemical": []}
     # Add user agent
     userAgent = UserAgent()
     headers = {"user-agent": userAgent}
-    params = {
-        "q": search_query,
-        "tbm": "nws",
-        "hl": "en",
-    }
 
+    # First Website
     response = requests.get(
-        "https://www.google.com/search", headers=headers, params=params
+        "https://www.worldofchemicals.com/media/news",
+        headers=headers,
     )
-    print("+" * 100)
-    print(response.url)
-    print("+" * 100)
-
     soup = BeautifulSoup(response.content, "html.parser")
-    count = 0
-    for a in soup.find_all("a", class_="WlydOe", href=True):
-        date_published = a.find("div", class_="OSrXXb ZE0LJd").contents[0].text
-        hours_check = re.findall("hours ago", date_published)
-        days_check = re.search("[1-2] (day|days) ago", date_published)
-        if hours_check or days_check:
-            print("+" * 100)
-            print(date_published)
-            news_links.append(a["href"])
-            count = count + 1
-        if count == 5:
-            break
-    return news_links
+    for div in soup.find_all("div", class_="col-md-10 mt10 p0 mb20"):
+        news_dict = {"Title": None, "Link": None, "Snippet": None, "date": None}
+        news_title = div.find("a", class_="c55 mt0 mb10 red3").text
+        news_link = div.find("a", class_="c55 mt0 mb10 red3", href=True)
+        news_snippet = div.find("p").text
+        news_date = div.find("div", class_="c88 fl").text
+        news_dict["Title"] = news_title
+        news_dict["Link"] = "https://www.worldofchemicals.com" + news_link["href"]
+        news_dict["Snippet"] = news_snippet
+        news_dict["date"] = news_date.strip()
+        chemical_industry_news_dict["World Of Chemical"].append(news_dict)
+    return chemical_industry_news_dict
+
+
+def get_industry_news_links_from_google_search(industry_type):
+    if industry_type == "chemical":
+        chemical_industry_news_dict = get_chemical_industry_news()
+        return chemical_industry_news_dict
 
 
 app = Flask(__name__)
@@ -167,6 +164,7 @@ def industry():
 
 @app.route("/news/")
 def news():
-    industry_type = request.form["industry_name"]
+    industry_type = request.form.get("industry_name", "")
+    industry_type = industry_type.lower()
     news_links = get_industry_news_links_from_google_search(industry_type)
-    return jsonify({"News_Links": news_links})
+    return jsonify(news_links)
